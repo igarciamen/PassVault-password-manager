@@ -1,6 +1,6 @@
 # PassVault
 
-A fully offline, client-side encrypted password manager for Android, built as a security-focused mobile learning project. Every credential is encrypted at rest on the device using a layered key-wrapping scheme (master password → derived key → Keystore-wrapped database passphrase), with no backend, no cloud sync, and no server component of any kind.
+A fully offline, client-side encrypted password manager for Android, built as a security-focused mobile learning project. Every credential is encrypted at rest on the device using a layered key-wrapping scheme, with no backend, no cloud sync, and no server component of any kind.
 
 # Demo
 
@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/c0951f99-4ef9-408b-bb40-11129ec395c5
 
 ## Features
 
-- 🔑 Single master password to unlock the entire vault, verified via PBKDF2 (210,000 iterations) — never stored in plaintext
+- 🔑 Single master password to unlock the entire vault, verified via PBKDF2 (210,000 iterations), never stored in plaintext
 - 🔒 AES-encrypted local database (SQLCipher) — the raw `.db` file is unreadable without the app's derived key
 - 👆 Optional biometric unlock (fingerprint/face), restricted to `BIOMETRIC_STRONG` sensors only
 - ⏱️ Configurable auto-lock (immediate / 30s / 1min / 5min) when the app goes to background
@@ -72,10 +72,10 @@ Each screen follows a ViewModel + repository pattern, with Room queries exposed 
 | Mechanism | Purpose |
 |---|---|
 | PBKDF2, 210,000 iterations | Master password verification is deliberately slow, making brute-force and dictionary attacks impractical even if the stored verifier leaks |
-| SQLCipher (AES) at-rest encryption | The database file is unreadable without the derived key — confirmed by pulling the raw `.db` via Device File Explorer and verifying it does not start with the `SQLite format 3` signature |
+| SQLCipher (AES) at-rest encryption | The database file is unreadable without the derived key, confirmed by pulling the raw `.db` via Device File Explorer and verifying it does not start with the `SQLite format 3` signature |
 | Keystore-wrapped database passphrase | The database's own encryption key is never stored in plaintext; it is wrapped by a key held in the Android Keystore |
 | `BIOMETRIC_STRONG`-only biometric unlock | Rejects Class 2 ("weak") fingerprint sensors that don't meet Android's hardware security bar for unlocking sensitive data |
-| Salted PBKDF2 hash for Secret Question answers | The answer is never stored or displayed — only a hash used for pass/fail verification, the same principle used for OS-level password storage |
+| Salted PBKDF2 hash for Secret Question answers | The answer is never stored or displayed, only a hash used for pass/fail verification, the same principle used for OS-level password storage |
 | AES-GCM + PBKDF2 for backups | A leaked export file is useless without a second, independent password the attacker is unlikely to also have |
 | Exponential backoff | Throttles repeated failed unlock attempts without permanently locking out the legitimate user |
 | `allowBackup="false"` | Prevents credential extraction via ADB or OEM cloud backup |
@@ -94,7 +94,7 @@ Each screen follows a ViewModel + repository pattern, with Room queries exposed 
 
 1. Clone the repository and open it in Android Studio.
 2. Let Gradle sync the dependencies.
-3. Select a device/emulator and run (`Run ▶`).
+3. Select a device/emulator and run.
 
 To test on a physical device from a clean state (recommended after any database schema change):
 
@@ -112,21 +112,3 @@ then reinstall from Android Studio.
 ./gradlew testDebugUnitTest             # unit tests (JVM)
 ./gradlew connectedDebugAndroidTest      # instrumented tests (device/emulator required)
 ```
-
-Test coverage includes key derivation determinism, unlock session management, failed-attempt backoff, biometric key/preference management (requires an enrolled fingerprint on the emulator: `adb -e emu finger touch 1`), Room persistence and queries, encrypted export/import round-trips, and Autofill field classification.
-
-## Known Limitations
-
-- **No clipboard copy for passwords** — removed by design after the auto-clear mechanism proved unreliable on some devices/keyboards; passwords can only be viewed on-screen.
-- **Destructive migrations** — schema version bumps currently wipe local data on first launch; no incremental migration path is implemented yet.
-- **Hardware-limited biometrics** — devices with Class 2 ("weak") fingerprint sensors cannot use biometric unlock; this is an intentional security restriction, not a bug.
-- **MIUI Autofill quirks** — on some older MIUI builds (observed on Android 10), aggressive background process management can make the Autofill authentication screen launch intermittently.
-- **No cross-device sync** — each install is fully independent; the only way to move data between devices is a manual encrypted export/import.
-
-## Development Notes
-
-The project was built incrementally across 9+ blocks: foundational setup, database/key derivation, master password and recovery codes, biometrics, auto-lock and clipboard hardening, general hardening (ProGuard, `allowBackup`, backoff), categories/favorites/audit/export-import/Autofill, testing and multi-device verification, and a final round adding the Secret Question entry type, loading indicators, and fixes for export/import reliability on devices that kill the app process during the system file picker.
-
-## License
-
-This is a learning/portfolio project. No license has been assigned.
