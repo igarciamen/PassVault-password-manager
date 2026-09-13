@@ -2,6 +2,11 @@
 
 A fully offline, client-side encrypted password manager for Android, built as a security-focused mobile learning project. Every credential is encrypted at rest on the device using a layered key-wrapping scheme (master password → derived key → Keystore-wrapped database passphrase), with no backend, no cloud sync, and no server component of any kind.
 
+# Demo
+
+https://github.com/user-attachments/assets/c0951f99-4ef9-408b-bb40-11129ec395c5
+
+
 **Package:** `com.passvault.app`
 
 ## Features
