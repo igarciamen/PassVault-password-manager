@@ -1,174 +1,127 @@
 # PassVault
 
-Gestor de contraseñas para Android, cifrado de extremo a extremo, construido con Kotlin y Jetpack Compose. Toda la información sensible se cifra en el dispositivo; PassVault no tiene backend ni sincronización en la nube — los datos nunca salen del teléfono salvo que el usuario exporte explícitamente una copia de seguridad cifrada.
+A fully offline, client-side encrypted password manager for Android, built as a security-focused mobile learning project. Every credential is encrypted at rest on the device using a layered key-wrapping scheme (master password → derived key → Keystore-wrapped database passphrase), with no backend, no cloud sync, and no server component of any kind.
 
-## Índice
+**Package:** `com.passvault.app`
 
-- [Características](#características)
-- [Arquitectura y stack técnico](#arquitectura-y-stack-técnico)
-- [Modelo de seguridad](#modelo-de-seguridad)
-- [Estructura del proyecto](#estructura-del-proyecto)
-- [Requisitos](#requisitos)
-- [Compilación e instalación](#compilación-e-instalación)
-- [Tests](#tests)
-- [Limitaciones conocidas](#limitaciones-conocidas)
-- [Historial de desarrollo por bloques](#historial-de-desarrollo-por-bloques)
+## Features
 
-## Características
+- 🔑 Single master password to unlock the entire vault, verified via PBKDF2 (210,000 iterations) — never stored in plaintext
+- 🔒 AES-encrypted local database (SQLCipher) — the raw `.db` file is unreadable without the app's derived key
+- 👆 Optional biometric unlock (fingerprint/face), restricted to `BIOMETRIC_STRONG` sensors only
+- ⏱️ Configurable auto-lock (immediate / 30s / 1min / 5min) when the app goes to background
+- 🐢 Exponential backoff on failed master-password attempts, throttling brute-force without permanent lockout
+- 🆘 One-time recovery code, shown once at account creation, to restore access if the master password is forgotten
+- 🗂️ Two entry types:
+  - **Password**: title, username, password, optional reminder question — password is view-on-demand only, never copyable to clipboard
+  - **Secret Question**: stores a visible question plus a salted PBKDF2 hash of the answer. The answer itself is never stored or shown — only verifiable, returning a ✅/❌ result
+- ⭐ Categories and favorites, with live filtering on the main list
+- 🕵️ Built-in security audit flagging weak and reused passwords
+- ✍️ Native Android Autofill Framework integration — fills credentials into other apps without copy/paste, gated behind the same lock/unlock session as the main app
+- 💾 Encrypted export/import (AES-GCM + PBKDF2), protected by a separate export password independent of the master password
+- ⏳ Loading indicators on every operation that involves cryptographic key derivation, so the UI never appears frozen during PBKDF2 work
 
-### Gestión de contraseñas
-- Guardar, editar, eliminar y buscar entradas.
-- Dos tipos de entrada:
-  - **Contraseña**: título, usuario, contraseña, pregunta-recordatorio opcional. La contraseña puede mostrarse/ocultarse bajo demanda; no se puede copiar al portapapeles (ver [Limitaciones conocidas](#limitaciones-conocidas)).
-  - **Pregunta secreta**: en vez de guardar una contraseña reversible, guarda una pregunta visible y el **hash con sal** de la respuesta (PBKDF2). La respuesta nunca se almacena ni se muestra en texto plano; solo puede verificarse escribiendo un intento, que se compara y devuelve ✅ (correcta) o ❌ (incorrecta).
-- Categorías personalizables y marcado de favoritos, con filtros en la lista principal.
-- Auditoría de seguridad: detección de contraseñas débiles y contraseñas reutilizadas entre varias entradas.
+## Tech Stack
 
-### Acceso y sesión
-- Contraseña maestra única, derivada con PBKDF2 (210.000 iteraciones) — nunca se almacena, solo un verificador.
-- Retardo exponencial entre intentos fallidos (backoff) para dificultar fuerza bruta, con cuenta regresiva visible.
-- Bloqueo automático configurable (inmediato / 30s / 1min / 5min) al pasar la app a segundo plano.
-- Desbloqueo biométrico opcional (huella / rostro), disponible solo en dispositivos con sensor `BIOMETRIC_STRONG`.
-- Código de recuperación de un solo uso, mostrado una vez al crear la cuenta, para restablecer el acceso si se olvida la contraseña maestra.
-- Indicadores de carga (spinners) en las operaciones que implican derivación criptográfica, para que la UI nunca parezca congelada.
-
-### Autocompletado del sistema
-- Servicio de Autofill Framework nativo de Android: permite rellenar usuario y contraseña en otras apps sin copiar y pegar.
-- Requiere desbloqueo de PassVault antes de ofrecer sugerencias si la sesión está bloqueada.
-
-### Copia de seguridad
-- Exportación cifrada (PBKDF2 + AES-GCM) protegida por una contraseña de exportación independiente de la maestra.
-- Importación desde el mismo formato, con las entradas añadidas como nuevos registros (no sobrescribe datos existentes).
-- Compatible con entradas de ambos tipos (Contraseña y Pregunta secreta).
-
-### Accesibilidad y usabilidad
-- Elementos interactivos con `contentDescription` para lectores de pantalla en los controles clave (favoritos, etc.).
-- Pantallas largas (Ajustes) con scroll vertical para adaptarse a pantallas pequeñas.
-
-## Arquitectura y stack técnico
-
-| Componente | Tecnología |
+| Layer | Technology |
 |---|---|
-| Lenguaje | Kotlin |
-| UI | Jetpack Compose + Material 3 |
-| Inyección de dependencias | Hilt |
-| Base de datos | Room sobre SQLCipher (base de datos cifrada en disco) |
-| Navegación | Navigation-Compose |
-| Trabajo en segundo plano | WorkManager |
-| Concurrencia | Coroutines + Flow |
-| Biometría | androidx.biometric (BiometricPrompt) |
-| Autocompletado | Android Autofill Framework |
+| Language | Kotlin |
+| UI | Jetpack Compose, Material 3 |
+| Architecture | MVVM, Hilt (dependency injection), Coroutines & Flow |
+| Navigation | Jetpack Navigation Compose |
+| Local database | Room over SQLCipher (encrypted-at-rest SQLite) |
+| Key storage | Android Keystore (hardware-backed key wrapping where supported) |
+| Biometrics | `androidx.biometric` (BiometricPrompt) |
+| Autocomplete | Android Autofill Framework (native service) |
+| Background work | WorkManager |
+| Cryptography | PBKDF2 (key derivation), AES-GCM (authenticated encryption) |
+| Release hardening | R8/ProGuard (obfuscation + shrinking) |
+| Testing | JUnit (unit), Espresso + Compose UI Testing (instrumented) |
 
-**Versiones principales**: AGP 9.2.1 · Kotlin 2.2.10 · Room 2.8.4 · SQLCipher 4.17.0 · Hilt 2.59.2 · Navigation-Compose 2.9.7. `compileSdk`/`targetSdk` 37, `minSdk` 26.
+**Build config:** AGP 9.2.1 · Kotlin 2.2.10 · Room 2.8.4 · SQLCipher 4.17.0 · Hilt 2.59.2 · Navigation-Compose 2.9.7 · `compileSdk`/`targetSdk` 37 · `minSdk` 26
 
-### Patrón general
-
-```
-UI (Compose Screens)
-   ↕ collectAsState
-ViewModel (Hilt) — StateFlow como fuente de verdad de la UI
-   ↕
-Repository (interfaz en domain, implementación en data)
-   ↕
-Room DAO ←→ SQLCipher (base de datos cifrada en disco)
-```
-
-La capa `security/` concentra toda la criptografía: derivación de claves, cifrado de la base de datos, gestión de biometría, hash de respuestas secretas, backoff de intentos fallidos, exportación/importación y limpieza de sesión.
-
-## Modelo de seguridad
-
-- **Contraseña maestra**: nunca se guarda. Se deriva con PBKDF2 (210.000 iteraciones) y solo se almacena un verificador para comprobar intentos de acceso.
-- **Base de datos**: cifrada en disco con SQLCipher; la passphrase de la base de datos está a su vez protegida por el Android Keystore (cifrado envolvente / *key wrapping*), de forma que ni con acceso directo al archivo `.db` es legible sin desbloquear la app primero.
-- **Respuestas de "pregunta secreta"**: hash + sal (PBKDF2), sin ninguna vía de recuperación — solo verificación, igual que una contraseña de sistema operativo. Nunca se transmiten ni se muestran en claro.
-- **Biometría**: la clave maestra se envuelve mediante una clave gestionada por el Keystore de Android, vinculada al sensor biométrico; no hay copia de la clave maestra en claro accesible por biometría directamente.
-- **Backups**: cifrados con PBKDF2 + AES-GCM y una contraseña de exportación independiente de la maestra; un archivo de backup robado sin esa contraseña es inutilizable.
-- **Superficie de ataque reducida**: `allowBackup="false"`, ofuscación/minificación en release (ProGuard/R8), `FLAG_SECURE` para evitar capturas de pantalla en pantallas sensibles, y auditoría manual confirmando ausencia de datos sensibles en logs.
-
-Para más detalle sobre cada mecanismo, ver los documentos de bloque en `docs/` (si están disponibles en el repositorio) o el historial de desarrollo más abajo.
-
-## Estructura del proyecto
+## Architecture Overview
 
 ```
-com.passvault.app
-├── data/                  # Entidades Room, DAO, mappers, implementación del repositorio
-├── domain/                 # Modelos de dominio e interfaces de repositorio
-├── security/                # Toda la lógica criptográfica y de sesión
-├── ui/                       # Pantallas Compose + ViewModels (un archivo por pantalla)
-│   └── navigation/            # Grafo de navegación y rutas
-├── autofill/                # Servicio de Autofill Framework
-└── di/                        # Módulos Hilt
+com.passvault.app/
+├── data/           Room entities, DAO, type converters, mappers, repository implementation
+├── domain/         Domain models (PasswordEntry, EntryType) and repository interfaces
+├── security/       All cryptography and session logic:
+│                   MasterPasswordManager, KeyDerivation, PassphraseManager,
+│                   BiometricKeyManager, BiometricPreferenceManager,
+│                   UnlockSessionManager, AutoLockPreferenceManager,
+│                   AppLifecycleObserver, SecretAnswerHasher,
+│                   ExportManager, ImportManager, AesGcmUtils,
+│                   RecoveryCodeManager, RecoveryCodeGenerator
+├── ui/             One screen + ViewModel per feature (Compose)
+│   └── navigation/    NavGraph, destinations, protected-route redirection
+├── autofill/       PassVaultAutofillService, AutofillStructureParser,
+│                   AutofillFieldClassifier, AutofillUnlockActivity/Screen/ViewModel
+└── di/             Hilt modules
 ```
 
-## Requisitos
+Each screen follows a ViewModel + repository pattern, with Room queries exposed as `Flow`s and collected reactively in Compose via `collectAsState()`. Transient state that must survive a system-triggered process death (the SAF file picker for export/import, the Autofill authentication activity) is kept in `SavedStateHandle` rather than Compose's in-memory `remember`, since some OEM Android builds (observed on certain MIUI devices) kill the app process while a system picker is open.
 
-- Android Studio (versión compatible con AGP 9.2.1 / Kotlin 2.2.10).
-- JDK compatible con el proyecto (ver configuración de Gradle).
-- SDK de Android con `compileSdk`/`targetSdk` 37 instalado.
-- Un dispositivo físico o emulador con `minSdk` 26 o superior.
+## Security Model
 
-## Compilación e instalación
+| Mechanism | Purpose |
+|---|---|
+| PBKDF2, 210,000 iterations | Master password verification is deliberately slow, making brute-force and dictionary attacks impractical even if the stored verifier leaks |
+| SQLCipher (AES) at-rest encryption | The database file is unreadable without the derived key — confirmed by pulling the raw `.db` via Device File Explorer and verifying it does not start with the `SQLite format 3` signature |
+| Keystore-wrapped database passphrase | The database's own encryption key is never stored in plaintext; it is wrapped by a key held in the Android Keystore |
+| `BIOMETRIC_STRONG`-only biometric unlock | Rejects Class 2 ("weak") fingerprint sensors that don't meet Android's hardware security bar for unlocking sensitive data |
+| Salted PBKDF2 hash for Secret Question answers | The answer is never stored or displayed — only a hash used for pass/fail verification, the same principle used for OS-level password storage |
+| AES-GCM + PBKDF2 for backups | A leaked export file is useless without a second, independent password the attacker is unlikely to also have |
+| Exponential backoff | Throttles repeated failed unlock attempts without permanently locking out the legitimate user |
+| `allowBackup="false"` | Prevents credential extraction via ADB or OEM cloud backup |
+| `FLAG_SECURE` on sensitive screens | Blocks screenshots and the Recents app-switcher thumbnail |
+| R8/ProGuard in release builds | Obfuscation and code shrinking, raising the cost of static analysis of the APK |
+| No clipboard copy for passwords | The clipboard-copy-with-auto-clear feature was removed after confirming clipboard clearing is unreliable across devices/keyboards; passwords are view-on-demand only |
 
-1. Clona el repositorio y ábrelo en Android Studio.
-2. Deja que Gradle sincronice las dependencias.
-3. Selecciona un dispositivo/emulador y ejecuta (`Run ▶`).
+## Requirements
 
-Para probar en un dispositivo físico partiendo de un estado limpio (recomendado tras cambios de esquema de base de datos):
+- Android Studio (compatible with AGP 9.2.1 / Kotlin 2.2.10)
+- A JDK compatible with the project's Gradle configuration
+- Android SDK with `compileSdk`/`targetSdk` 37 installed
+- A physical device or emulator running API 26 (Android 8.0) or higher
+
+## Setup
+
+1. Clone the repository and open it in Android Studio.
+2. Let Gradle sync the dependencies.
+3. Select a device/emulator and run (`Run ▶`).
+
+To test on a physical device from a clean state (recommended after any database schema change):
 
 ```
 adb uninstall com.passvault.app
 ```
 
-y vuelve a instalar desde Android Studio.
+then reinstall from Android Studio.
 
-> **Nota:** el proyecto usa actualmente `fallbackToDestructiveMigration` en Room durante el desarrollo. Subir la versión de la base de datos borra los datos locales existentes en el primer arranque tras el cambio — esperado en esta fase, no apto tal cual para producción sin migraciones reales.
+> **Note:** the project currently uses `fallbackToDestructiveMigration` in Room during development. Bumping the database version wipes local data on first launch after the change — expected at this stage, not production-ready without real migrations.
 
-## Tests
+## Running Tests
 
-El proyecto incluye tests unitarios (JVM, `app/src/test`) y tests instrumentados (`app/src/androidTest`) cubriendo:
-
-- Derivación de claves y determinismo criptográfico.
-- Gestión de sesión de desbloqueo (`UnlockSessionManagerTest`).
-- Backoff de intentos fallidos (`MasterPasswordManagerTest`).
-- Biometría (`BiometricKeyManagerTest`, `BiometricPreferenceManagerTest`) — requiere huella enrolada en el emulador (`adb -e emu finger touch 1`) o dispositivo con sensor compatible.
-- Persistencia y consultas (`PasswordDaoTest`).
-- Exportación/importación cifrada (`ExportImportRoundTripTest`).
-- Clasificación de campos de Autofill (`AutofillFieldClassifierTest`).
-- Preferencias de bloqueo automático y frase de paso (`AutoLockPreferenceManagerTest`, `PassphraseManagerTest`, `RecoveryCodeManagerTest`).
-
-Ejecutar tests unitarios:
 ```
-./gradlew testDebugUnitTest
+./gradlew testDebugUnitTest             # unit tests (JVM)
+./gradlew connectedDebugAndroidTest      # instrumented tests (device/emulator required)
 ```
 
-Ejecutar tests instrumentados (con emulador/dispositivo conectado):
-```
-./gradlew connectedDebugAndroidTest
-```
+Test coverage includes key derivation determinism, unlock session management, failed-attempt backoff, biometric key/preference management (requires an enrolled fingerprint on the emulator: `adb -e emu finger touch 1`), Room persistence and queries, encrypted export/import round-trips, and Autofill field classification.
 
-## Limitaciones conocidas
+## Known Limitations
 
-- **Sin copiar contraseña al portapapeles**: se retiró la opción de copiar la contraseña al portapapeles (existía un borrado automático a los 30s vía WorkManager) porque no resultaba fiable en todos los dispositivos/teclados. La contraseña solo puede consultarse mostrándola en pantalla.
-- **Migraciones destructivas**: como se indica arriba, los cambios de esquema de base de datos actualmente destruyen los datos locales; no hay migraciones incrementales implementadas todavía.
-- **Biometría limitada por hardware**: dispositivos con sensores de huella de Clase 2 (biometría "débil", no `BIOMETRIC_STRONG`) no pueden usar el desbloqueo biométrico; es una restricción deliberada de seguridad, no un fallo.
-- **Comportamiento de Autofill en MIUI antiguo**: en algunas versiones de MIUI (observado en Android 10), la gestión agresiva de procesos en segundo plano puede hacer que el lanzamiento de la pantalla de autenticación del servicio de Autofill sea intermitente.
-- **Sin sincronización entre dispositivos**: cada instalación es independiente; la única forma de mover datos entre dispositivos es exportar/importar manualmente un backup cifrado.
+- **No clipboard copy for passwords** — removed by design after the auto-clear mechanism proved unreliable on some devices/keyboards; passwords can only be viewed on-screen.
+- **Destructive migrations** — schema version bumps currently wipe local data on first launch; no incremental migration path is implemented yet.
+- **Hardware-limited biometrics** — devices with Class 2 ("weak") fingerprint sensors cannot use biometric unlock; this is an intentional security restriction, not a bug.
+- **MIUI Autofill quirks** — on some older MIUI builds (observed on Android 10), aggressive background process management can make the Autofill authentication screen launch intermittently.
+- **No cross-device sync** — each install is fully independent; the only way to move data between devices is a manual encrypted export/import.
 
-## Historial de desarrollo por bloques
+## Development Notes
 
-El proyecto se desarrolló de forma incremental en bloques temáticos:
+The project was built incrementally across 9+ blocks: foundational setup, database/key derivation, master password and recovery codes, biometrics, auto-lock and clipboard hardening, general hardening (ProGuard, `allowBackup`, backoff), categories/favorites/audit/export-import/Autofill, testing and multi-device verification, and a final round adding the Secret Question entry type, loading indicators, and fixes for export/import reliability on devices that kill the app process during the system file picker.
 
-| Bloque | Contenido |
-|---|---|
-| 0 | Configuración inicial del proyecto, Hilt, estructura base |
-| 1–3 | Modelo de datos, cifrado de base de datos, derivación de claves |
-| 4 | Contraseña maestra, código de recuperación |
-| 5 | Autenticación biométrica |
-| 6 | Bloqueo automático, `FLAG_SECURE`, limpieza de portapapeles (posteriormente retirada) |
-| 7 | Hardening: `allowBackup=false`, backoff exponencial, ProGuard/R8 |
-| 8 | Categorías y favoritos, auditoría de seguridad, exportación/importación cifrada, Autofill Framework, tema dinámico Material 3 |
-| 9 | Testing y pulido: cobertura de tests, verificación en múltiples dispositivos, corrección de bugs de scroll y persistencia |
-| Post-9 | Tipo de entrada "Pregunta secreta" (hash de respuesta sin exposición), indicadores de carga en operaciones criptográficas, corrección de exportación/importación en dispositivos que matan el proceso durante el selector de archivos del sistema |
+## License
 
----
-
-*Este README describe el estado del proyecto tal como está documentado en el histórico de desarrollo. Antes de cualquier despliegue a producción, revisa especialmente la sección de [Limitaciones conocidas](#limitaciones-conocidas) y sustituye las migraciones destructivas de Room por migraciones reales.*
+This is a learning/portfolio project. No license has been assigned.
